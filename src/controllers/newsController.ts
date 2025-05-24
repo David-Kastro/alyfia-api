@@ -1,6 +1,6 @@
 // src/controllers/newsController.ts
 import { Request, Response } from "express";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "@/prisma-client";
 import axios from "axios";
 import { updateScoresForNews } from "../services/scoreService";
 import { assignValidationRequests } from "../services/validationService";

@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
+import logger from "../logger";
 
 const prisma = new PrismaClient();
 
@@ -10,39 +11,28 @@ const prisma = new PrismaClient();
  */
 export const getUserFeed = async (req: Request, res: Response) => {
   const userId = (req as any).user?.userId;
-  if (!userId) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
   try {
-    // Primeiro, busca as threads onde o usuário está inscrito
     const subscriptions = await prisma.threadSubscription.findMany({
       where: { userId },
       select: { threadId: true },
     });
 
-    const threadIds = subscriptions.map((sub) => sub.threadId);
+    const threadIds = subscriptions.map(sub => sub.threadId);
 
-    // Busca notícias dessas threads ordenadas pela data de criação
     const newsFeed = await prisma.news.findMany({
-      where: {
-        threadId: { in: threadIds },
-      },
-      include: {
-        author: { select: { id: true, username: true, score: true } },
-        thread: true,
-        topic: true,
-        issues: true,
-        validations: true,
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
+      where: { threadId: { in: threadIds } },
+      include: { author: true, thread: true, topic: true },
+      orderBy: [
+        { validationScore: 'desc' },
+        { createdAt: 'desc' },
+      ],
     });
 
     res.status(200).json(newsFeed);
   } catch (error: any) {
-    console.error("Erro ao buscar feed:", error);
+    logger.error({ error }, "Erro ao buscar feed do usuário");
     res.status(500).json({ error: error.message });
   }
 };

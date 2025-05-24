@@ -4,7 +4,16 @@ import { PrismaClient, ValidationStatus } from "@prisma/client";
 const prisma = new PrismaClient();
 
 // Fator que define o impacto de cada issue na porção de 50 pontos da avaliação.
-const ISSUE_WEIGHT_FACTOR = 10;
+const ISSUE_WEIGHTS: Record<string, number> = {
+  bias: 8,
+  subjectivity: 5,
+  contradiction: 10,
+  ad: 6,
+  opinion: 7,
+  sentiment_bias: 5,
+  false_fact: 15,
+  off_topic: 4,
+};
 
 /**
  * Recalcula o score do usuário com base na soma dos scoreIncrement de todas as entradas de ScoreHistory.
@@ -49,129 +58,59 @@ export async function recalcUserScore(userId: string): Promise<void> {
  * @param newsId ID da notícia a ser atualizada.
  */
 export async function updateScoresForNews(newsId: string): Promise<void> {
-  // Buscar a notícia, incluindo validações, issues e a thread associada.
   const news = await prisma.news.findUnique({
     where: { id: newsId },
     include: {
-      validations: {
-        include: { validatedBy: true },
-      },
+      validations: { include: { validatedBy: true } },
       issues: true,
-      thread: true,
     },
   });
 
-  if (!news) {
-    console.error("News not found for id:", newsId);
-    return;
-  }
+  if (!news) return;
 
-  const { threadId, authorId } = news;
+  // Pontuação baseada em validações ponderadas pelo score dos usuários
+  const maxValidatorScore = Math.max(...news.validations.map(v => v.validatedBy.score), 1);
+  const acceptedWeight = news.validations
+    .filter(v => v.status === ValidationStatus.accepted)
+    .reduce((sum, v) => sum + (v.validatedBy.score / maxValidatorScore), 0);
+  const rejectedWeight = news.validations
+    .filter(v => v.status === ValidationStatus.rejected)
+    .reduce((sum, v) => sum + (v.validatedBy.score / maxValidatorScore), 0);
 
-  // Obter todas as validações de notícias na mesma thread para determinar o score máximo entre os avaliadores.
-  const validationsInThread = await prisma.validation.findMany({
-    where: { news: { threadId } },
-    include: { validatedBy: true },
-  });
+  const totalValidations = acceptedWeight + rejectedWeight;
+  const validationScore = totalValidations
+    ? (acceptedWeight / totalValidations) * 50
+    : 25; // Se não houver validações, valor neutro (25)
 
-  // Determinar o score máximo entre os avaliadores desta thread.
-  let maxEvaluatorScore = 0;
-  for (const val of validationsInThread) {
-    const evaluatorScore = val.validatedBy ? val.validatedBy.score : 0;
-    if (evaluatorScore > maxEvaluatorScore) {
-      maxEvaluatorScore = evaluatorScore;
-    }
-  }
-  if (maxEvaluatorScore === 0) {
-    maxEvaluatorScore = 1; // Evitar divisão por zero.
-  }
+  // Pontuação baseada em issues com pesos personalizados
+  const issueScore = Math.max(0, 50 - news.issues.reduce(
+    (sum, issue) => sum + (ISSUE_WEIGHTS[issue.type] || 5), 0
+  ));
 
-  // Calcular os pesos das validações para esta notícia.
-  let weightedAccepted = 0;
-  let weightedRejected = 0;
-  for (const val of news.validations) {
-    const evaluatorScore = val.validatedBy ? val.validatedBy.score : 0;
-    const weight = evaluatorScore / maxEvaluatorScore; // Peso na escala de 0 a 1.
-    if (val.status === ValidationStatus.accepted) {
-      weightedAccepted += weight;
-    } else if (val.status === ValidationStatus.rejected) {
-      weightedRejected += weight;
-    }
-    // Validações "pending" são ignoradas.
-  }
+  const finalScore = Math.round(validationScore + issueScore);
 
-  // Se não houver validações, assume-se um valor neutro de 50% para essa porção.
-  let evaluationPercentage = 0.5;
-  const totalWeighted = weightedAccepted + weightedRejected;
-  if (totalWeighted > 0) {
-    evaluationPercentage = weightedAccepted / totalWeighted;
-  }
-  const evaluationComponent = evaluationPercentage * 50; // 50 pontos disponíveis.
-
-  // Calcular a porção referente às issues.
-  const totalIssueWeight = news.issues.length; // Cada issue tem peso 1.
-  const issuesComponent = Math.max(
-    0,
-    50 - ISSUE_WEIGHT_FACTOR * totalIssueWeight
-  );
-
-  // ValidationScore total (escala de 0 a 100).
-  const totalValidationScore = Math.min(
-    100,
-    evaluationComponent + issuesComponent
-  );
-
-  // Atualizar o validationScore da notícia.
   await prisma.news.update({
     where: { id: newsId },
-    data: { validationScore: totalValidationScore },
+    data: { validationScore: finalScore },
   });
 
-  // Determinar o incremento (ou decremento) do score do autor com base nos thresholds.
-  let userScoreIncrement = 0;
-  if (totalValidationScore >= 85) {
-    userScoreIncrement = 50;
-  } else if (totalValidationScore >= 75) {
-    userScoreIncrement = 25;
-  } else if (totalValidationScore >= 65) {
-    userScoreIncrement = 5;
-  } else if (totalValidationScore >= 50) {
-    userScoreIncrement = 0;
-  } else if (totalValidationScore >= 20) {
-    userScoreIncrement = -25;
-  } else {
-    // totalValidationScore < 20
-    userScoreIncrement = -50;
-  }
+  // Recalcula score do autor da notícia
+  const userScoreIncrement = finalScore >= 85 ? 50 :
+                             finalScore >= 75 ? 25 :
+                             finalScore >= 65 ? 5 :
+                             finalScore >= 50 ? 0 :
+                             finalScore >= 20 ? -25 : -50;
 
-  // Registrar ou atualizar o histórico na tabela ScoreHistory.
-  const existingHistory = await prisma.scoreHistory.findUnique({
+  await prisma.scoreHistory.upsert({
     where: { newsId },
+    update: { validationScore: finalScore, scoreIncrement: userScoreIncrement },
+    create: {
+      newsId,
+      userId: news.authorId,
+      validationScore: finalScore,
+      scoreIncrement: userScoreIncrement,
+    },
   });
 
-  if (existingHistory) {
-    await prisma.scoreHistory.update({
-      where: { newsId },
-      data: {
-        validationScore: totalValidationScore,
-        scoreIncrement: userScoreIncrement,
-      },
-    });
-  } else {
-    await prisma.scoreHistory.create({
-      data: {
-        newsId,
-        userId: authorId,
-        validationScore: totalValidationScore,
-        scoreIncrement: userScoreIncrement,
-      },
-    });
-  }
-
-  // Recalcular o score do usuário com base em todos os registros de ScoreHistory.
-  await recalcUserScore(authorId);
-
-  console.log(
-    `News ${newsId} updated: validationScore=${totalValidationScore}, scoreIncrement=${userScoreIncrement}`
-  );
+  await recalcUserScore(news.authorId);
 }

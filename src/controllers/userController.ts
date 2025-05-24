@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
+import logger from "../logger";
 
 const prisma = new PrismaClient();
 const saltRounds = 10; // Número de rounds para o bcrypt
@@ -130,5 +131,24 @@ export const deleteUser = async (req: Request, res: Response) => {
     res.status(200).json(deletedUser);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
+  }
+};
+
+export const getUserScoreHistory = async (req: Request, res: Response) => {
+  const { userId } = req.params;
+
+  try {
+    const scoreHistory = await prisma.scoreHistory.findMany({
+      where: { userId },
+      include: {
+        news: { select: { title: true } },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    res.status(200).json(scoreHistory);
+  } catch (error: any) {
+    logger.error({ error }, "Erro ao obter histórico de score");
+    res.status(500).json({ error: error.message });
   }
 };

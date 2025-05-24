@@ -20,22 +20,38 @@ model User {
   news         News[]   // Usuário pode criar várias notícias
   validations  Validation[] // Validações realizadas pelo usuário
 
-  ScoreHistory       ScoreHistory[]
-  ThreadSubscription ThreadSubscription[]
+  scoreHistory        ScoreHistory[]
+  threadSubscriptions ThreadSubscription[]
+  newsEdit            NewsEdit[]
+
+  userQuestions       UserQuestion[]
+}
+
+model UserQuestion {
+  id           String   @id @default(uuid())
+  userId       String
+  topicId      String
+  question     String
+  answered     Boolean  @default(false)
+  answer       String?
+  createdAt    DateTime @default(now())
+
+  user         User     @relation(fields: [userId], references: [id])
+  topic        Topic    @relation(fields: [topicId], references: [id])
 }
 
 model Thread {
-  id                String   @id @default(uuid())
-  title             String   @unique
-  descriptionPrompt String
-  author            User     @relation(fields: [authorId], references: [id])
-  authorId          String
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  topics            Topic[]
-  news              News[]
+  id                  String   @id @default(uuid())
+  title               String   @unique
+  descriptionPrompt   String
+  author              User     @relation(fields: [authorId], references: [id])
+  authorId            String
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  topics              Topic[]
+  news                News[]
 
-  ThreadSubscription ThreadSubscription[]
+  threadSubscriptions ThreadSubscription[]
 }
 
 model ThreadSubscription {
@@ -56,6 +72,8 @@ model Topic {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   news        News[]
+
+  userQuestions UserQuestion[]
 }
 
 model News {
@@ -74,7 +92,20 @@ model News {
   issues          Issue[]
   validations     Validation[]
 
-  ScoreHistory    ScoreHistory[]
+  scoreHistory    ScoreHistory[]
+  newsEdit        NewsEdit[]
+}
+
+model NewsEdit {
+  id            String   @id @default(uuid())
+  newsId        String
+  editedById    String
+  oldContent    String
+  newContent    String
+  createdAt     DateTime @default(now())
+
+  news          News     @relation(fields: [newsId], references: [id])
+  editedBy      User     @relation(fields: [editedById], references: [id])
 }
 
 model Issue {

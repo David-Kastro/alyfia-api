@@ -11,6 +11,7 @@ import authRoutes from "./routes/authRoutes";
 import { authenticate } from "./middlewares/authMiddleware";
 import cors from "cors";
 import feedRoutes from "./routes/feedRoutes";
+import { errorHandler } from "./middlewares/errorMiddleware";
 
 dotenv.config();
 
@@ -32,6 +33,8 @@ app.use("/api/news", authenticate, newsRoutes);
 app.use("/api/issues", authenticate, issueRoutes);
 app.use("/api/validations", authenticate, validationRoutes);
 app.use("/api/feed", authenticate, feedRoutes);
+
+app.use(errorHandler);
 
 app.listen(port, () => {
   console.log(`Servidor rodando na porta ${port}`);

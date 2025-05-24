@@ -2,89 +2,65 @@ import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { PrismaClient } from "@prisma/client";
+import logger from "../logger";
 
 const prisma = new PrismaClient();
 const saltRounds = 10;
 
 export const register = async (req: Request, res: Response) => {
+  const { username, email, password } = req.body;
+
   try {
-    const { username, email, password } = req.body;
-
-    if (!username || !email || !password) {
-      return res
-        .status(400)
-        .json({ error: "Username, email and password are required." });
-    }
-
-    // Verifica se já existe um usuário com o mesmo e-mail
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
-      return res
-        .status(400)
-        .json({ error: "User already exists with this email." });
+      logger.warn({ email }, "Tentativa de registro duplicado");
+      return res.status(400).json({ error: "Usuário já existe com este email." });
     }
 
-    // Criptografa a senha
     const passwordHash = await bcrypt.hash(password, saltRounds);
-
-    // Cria o usuário no banco
     const newUser = await prisma.user.create({
-      data: {
-        username,
-        email,
-        passwordHash,
-        score: 0,
-      },
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        score: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+      data: { username, email, passwordHash },
+      select: { id: true, username: true, email: true, score: true, createdAt: true },
     });
 
-    // Gera um token JWT para o novo usuário
     const token = jwt.sign(
       { userId: newUser.id, email: newUser.email },
-      process.env.JWT_SECRET || "your_secret_here",
+      process.env.JWT_SECRET!,
       { expiresIn: "7d" }
     );
 
+    logger.info({ userId: newUser.id, email: newUser.email }, "Usuário registrado com sucesso");
     res.status(201).json({ user: newUser, token });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    console.error(error);
+    logger.error({ error }, "Erro no registro de usuário");
+    res.status(500).json({ error: "Erro interno ao registrar usuário." });
   }
 };
 
 export const login = async (req: Request, res: Response) => {
+  const { email, password } = req.body;
+
   try {
-    const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res
-        .status(400)
-        .json({ error: "Email and password are required." });
-    }
-
     const user = await prisma.user.findUnique({ where: { email } });
 
     if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
-      return res.status(401).json({ error: "Invalid email or password." });
+      logger.warn({ email }, "Falha de login (email ou senha incorreta)");
+      return res.status(401).json({ error: "Email ou senha inválidos." });
     }
 
     const token = jwt.sign(
       { userId: user.id, email: user.email },
-      process.env.JWT_SECRET || "your_secret_here",
+      process.env.JWT_SECRET!,
       { expiresIn: "7d" }
     );
 
-    // Excluindo passwordHash da resposta
+    logger.info({ userId: user.id }, "Login realizado com sucesso");
     const { passwordHash, ...userData } = user;
-
     res.status(200).json({ user: userData, token });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    console.log(error)
+    logger.error({ error }, "Erro no login do usuário");
+    res.status(500).json({ error: "Erro interno ao fazer login." });
   }
 };

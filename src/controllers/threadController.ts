@@ -12,7 +12,7 @@ export const getThreads = async (req: Request, res: Response) => {
   try {
     const threadsData = await prisma.thread.findMany({
       include: {
-        ThreadSubscription: {
+        threadSubscriptions: {
           where: { userId },
           select: { id: true },
         },
@@ -23,7 +23,7 @@ export const getThreads = async (req: Request, res: Response) => {
 
     const threads = threadsData.map((thread) => ({
       ...thread,
-      subscribed: thread.ThreadSubscription.length > 0,
+      subscribed: thread.threadSubscriptions.length > 0,
     }));
     res.status(200).json(threads);
   } catch (error: any) {

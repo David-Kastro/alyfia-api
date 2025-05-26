@@ -6,9 +6,6 @@
       "outDir": "./dist",
       "strict": true,
       "esModuleInterop": true,
-      "forceConsistentCasingInFileNames": true,
-      "paths": {
-        "@/*": ["./src/*"]
-      },
+      "forceConsistentCasingInFileNames": true
     }
   }

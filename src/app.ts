@@ -39,3 +39,9 @@ app.use(errorHandler);
 app.listen(port, () => {
   console.log(`Servidor rodando na porta ${port}`);
 });
+
+//TODO: Analise de sentimento comentarios
+//TODO: identificaçao de spam
+//TODO: incentivo para validaçao de leitores
+//TODO: Melhoria layout
+//TODO: melhorar prompts gerais
